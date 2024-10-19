@@ -90,7 +90,6 @@ resource "aws_instance" "grafana_server" {
   subnet_id              = aws_subnet.gitops_subnet.id
   vpc_security_group_ids = [aws_security_group.gitops_sg.id]
   user_data              = file("userdata.tftpl")
-  availability_zone      = null
 
   tags = {
     Name = "grafana-server"

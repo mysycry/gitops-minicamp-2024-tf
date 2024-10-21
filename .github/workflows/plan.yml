@@ -1,9 +1,13 @@
-name: 'Terraform'
+name: 'Terraform Plan'
 
 on:
   push:
-    branches: [ 'main']
+    branches: [ 'main' ]
   pull_request:
+  workflow_call:
+    secrets:
+      ROLE_TO_ASSUME:
+        required: true
 
 permissions:
   contents: read
@@ -14,11 +18,12 @@ jobs:
     name: 'Terraform'
     runs-on: ubuntu-latest
     environment: production
-
     defaults:
       run:
         shell: bash
         working-directory: ./terraform
+    env:
+      GH_TOKEN: ${{ github.token }}
 
     steps:
     # Checkout the repository to the GitHub Actions runner
@@ -26,9 +31,8 @@ jobs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.ROLE_TO_ASSUME }}
-        aws-region: ap-southeast-2
-
-
+        aws-region: us-east-1
+    
     - name: Checkout
       uses: actions/checkout@v4
 
@@ -44,6 +48,20 @@ jobs:
     - name: Terraform Format
       run: terraform fmt -check
 
-    # Generates an execution plan for Terraform
+      # Terraform Plan
     - name: Terraform Plan
-      run: terraform plan -input=false
+      id: plan
+      run: |
+        terraform plan -out=plan.tfplan
+        terraform show -json plan.tfplan > /tmp/plan.json
+        cat /tmp/plan.json
+
+    - name: Setup OPA
+      uses: open-policy-agent/setup-opa@v2
+      with:
+        version: latest
+
+    - name: Run OPA Tests
+      run: |
+        opaout=$(opa eval --data ../policies/plan.rego --input /tmp/plan.json "data.terraform.deny" | jq -r '.result[].expressions[].value[]')
+        [ -z "$opaout" ] && exit 0 || echo "$opaout" && gh pr comment ${{ github.event.pull_request.number }} --body "### $opaout" && exit 1
